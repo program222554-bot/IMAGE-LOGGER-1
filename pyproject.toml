@@ -1,9 +1,0 @@
-[project]
-name = "image-logger"
-version = "0.1.0"
-description = "My project"
-requires-python = ">=3.12"
-
-dependencies = [
-    "flask",
-]
